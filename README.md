@@ -338,7 +338,3 @@ Run all example products:
 ```bash
 python3 -m examples.pricing_examples
 ```
-
-## Remaining Known Limitations
-
-- The ASR pricer models scheduled final settlement. It does not optimize a counterparty early-termination right.
