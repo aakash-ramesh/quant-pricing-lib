@@ -89,35 +89,35 @@ Pricing features:
 
 Pricing math:
 
-For payment dates \(T_i\), accrual fractions \(\alpha_i\), notional \(N\), fixed rate \(K\), discount factor \(P^d(0,T_i)\), and forecast discount factor \(P^f(0,T_i)\):
+For payment dates $T_i$, accrual fractions $\alpha_i$, notional $N$, fixed rate $K$, discount factor $P^d(0,T_i)$, and forecast discount factor $P^f(0,T_i)$:
 
-\[
+$$
 PV_{\text{fixed}} = N K \sum_i \alpha_i P^d(0,T_i)
-\]
+$$
 
-The floating forward for period \([T_{i-1}, T_i]\) is:
+The floating forward for period $[T_{i-1}, T_i]$ is:
 
-\[
+$$
 F_i = \frac{P^f(0,T_{i-1})/P^f(0,T_i)-1}{\alpha_i}
-\]
+$$
 
-With spread \(s\):
+With spread $s$:
 
-\[
+$$
 PV_{\text{float}} = N \sum_i (F_i+s)\alpha_i P^d(0,T_i)
-\]
+$$
 
 For a fixed-rate payer:
 
-\[
+$$
 PV = PV_{\text{float}} - PV_{\text{fixed}}
-\]
+$$
 
 For a fixed-rate receiver, the sign is reversed. The par fixed rate is:
 
-\[
+$$
 K^* = \frac{PV_{\text{float}}}{N\sum_i \alpha_i P^d(0,T_i)}
-\]
+$$
 
 ### European Equity Options
 
@@ -136,37 +136,37 @@ Contractual features:
 
 Black-Scholes math:
 
-\[
+$$
 d_1 = \frac{\ln(S_0/K)+(r-q+\sigma^2/2)T}{\sigma\sqrt{T}},
 \qquad
 d_2 = d_1-\sigma\sqrt{T}
-\]
+$$
 
 European call:
 
-\[
+$$
 C = S_0 e^{-qT}N(d_1)-K e^{-rT}N(d_2)
-\]
+$$
 
 European put:
 
-\[
+$$
 P = K e^{-rT}N(-d_2)-S_0 e^{-qT}N(-d_1)
-\]
+$$
 
 The implementation also returns delta, gamma, vega, theta, and rho.
 
 Heston Monte Carlo uses full-truncation Euler variance steps:
 
-\[
+$$
 dS_t=(r-q)S_tdt+\sqrt{v_t}S_tdW^S_t
-\]
+$$
 
-\[
+$$
 dv_t=\kappa(\theta-v_t)dt+\xi\sqrt{v_t}dW^v_t,
 \qquad
 dW^SdW^v=\rho dt
-\]
+$$
 
 ### American Equity Options
 
@@ -174,25 +174,25 @@ An American option can be exercised on any tree step up to maturity. There is no
 
 Tree math:
 
-\[
+$$
 u=e^{\sigma\sqrt{\Delta t}},
 \qquad
 d=\frac{1}{u},
 \qquad
 p=\frac{e^{(r-q)\Delta t}-d}{u-d}
-\]
+$$
 
 At each node:
 
-\[
+$$
 V = e^{-r\Delta t}\left(pV_u+(1-p)V_d\right)
-\]
+$$
 
 For American exercise:
 
-\[
+$$
 V = \max(V,\text{intrinsic value})
-\]
+$$
 
 ### Equity Forward
 
@@ -200,15 +200,15 @@ An equity forward is an agreement to buy or sell stock at a fixed strike on a fu
 
 No-arbitrage forward price with continuous dividend yield:
 
-\[
+$$
 F_0 = S_0 e^{(r-q)T}
-\]
+$$
 
 Long forward PV:
 
-\[
+$$
 PV = S_0e^{-qT} - K e^{-rT}
-\]
+$$
 
 ### Arithmetic Asian Option
 
@@ -216,27 +216,27 @@ An arithmetic Asian option pays based on the arithmetic average of observed pric
 
 Call payoff:
 
-\[
+$$
 \max(\bar{S}-K,0)
-\]
+$$
 
 Put payoff:
 
-\[
+$$
 \max(K-\bar{S},0)
-\]
+$$
 
 where:
 
-\[
+$$
 \bar{S}=\frac{1}{m}\sum_{j=1}^{m}S_{t_j}
-\]
+$$
 
 The simulated equity process is:
 
-\[
+$$
 S_{t+\Delta t}=S_t\exp\left((r-q-\sigma^2/2)\Delta t+\sigma\sqrt{\Delta t}Z\right)
-\]
+$$
 
 Variance-reduction options include:
 
@@ -267,35 +267,35 @@ Core settlement math:
 
 Upfront shares:
 
-\[
+$$
 \text{UpfrontShares} = \frac{N \times f}{S_{\text{initial}}}
-\]
+$$
 
 Final net average:
 
-\[
+$$
 A_{\text{net}} = \min(\max(\bar{S}-d,\text{floor}),\text{cap})
-\]
+$$
 
-Variable notional multiplier \(w(\bar{S})\) is linearly interpolated between low and high levels and clamped to the configured multiplier bounds.
+Variable notional multiplier $w(\bar{S})$ is linearly interpolated between low and high levels and clamped to the configured multiplier bounds.
 
 Total shares deliverable:
 
-\[
+$$
 \text{TotalShares} = \frac{N \times w(\bar{S})}{A_{\text{net}}}
-\]
+$$
 
 Final settlement shares:
 
-\[
+$$
 \text{SettlementShares} = \text{TotalShares} - \text{UpfrontShares}
-\]
+$$
 
 The ASR pricer reports the present value of final settlement shares from the corporate client's perspective:
 
-\[
+$$
 PV = e^{-rT}\mathbb{E}[\text{SettlementShares}\times S_T]
-\]
+$$
 
 The model uses risk-neutral Monte Carlo with optional antithetic paths. It is intentionally simpler than the legacy `asr_pricer.py` PDE script, which includes a Crank-Nicolson path-variable PDE and requires `numpy`/`scipy`.
 
