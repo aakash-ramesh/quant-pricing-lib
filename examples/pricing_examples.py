@@ -37,7 +37,22 @@ def synthetic_usd_curve(ref_date: date) -> DiscountCurve:
 
 def price_interest_rate_swap() -> None:
     valuation_date = date(2026, 5, 15)
-    curve = synthetic_usd_curve(valuation_date)
+    discount_curve = synthetic_usd_curve(valuation_date)
+    forecast_curve = DiscountCurve(
+        valuation_date,
+        (
+            (0.0, 0.0500),
+            (0.25, 0.0490),
+            (0.5, 0.0480),
+            (1.0, 0.0470),
+            (2.0, 0.0450),
+            (3.0, 0.0435),
+            (5.0, 0.0420),
+            (7.0, 0.0425),
+            (10.0, 0.0435),
+        ),
+        interpolation="log_linear_discount",
+    )
     swap = build_vanilla_interest_rate_swap(
         valuation_date,
         valuation_date,
@@ -46,12 +61,14 @@ def price_interest_rate_swap() -> None:
         fixed_rate=0.0415,
         direction="payer",
         floating_spread=0.0008,
+        calendar="us_federal",
     )
-    value = InterestRateSwapPricer().price(swap, curve)
+    value = InterestRateSwapPricer().price(swap, discount_curve, forecast_curve)
     print("Interest rate swap")
     print(f"  PV: ${value.pv:,.2f}")
     print(f"  Par fixed rate: {value.par_rate:.4%}")
-    print(f"  DV01 for +1bp parallel bump: ${value.dv01:,.2f}")
+    print(f"  Discount DV01: ${value.discount_dv01:,.2f}")
+    print(f"  Forecast DV01: ${value.forecast_dv01:,.2f}")
 
 
 def price_european_option() -> None:
@@ -67,10 +84,10 @@ def price_european_option() -> None:
         quantity=10_000,
     )
     analytic = BlackScholesPricer().price(call)
-    tree = BinomialTreePricer(steps=500).price(call)
+    tree = BinomialTreePricer(steps=500, model="tian").price(call)
     print("\nEuropean equity call")
     print(f"  Black-Scholes PV: ${analytic.price:,.2f}")
-    print(f"  Binomial PV:      ${tree.price:,.2f}")
+    print(f"  Tian tree PV:     ${tree.price:,.2f}")
     print(f"  Delta:            {analytic.delta:,.2f} shares")
 
 
@@ -119,10 +136,16 @@ def price_asian_option() -> None:
         observations=12,
         quantity=50_000,
     )
-    value = AsianMonteCarloPricer(paths=12_000, seed=23).price(asian)
+    value = AsianMonteCarloPricer(
+        paths=12_000,
+        seed=23,
+        moment_matching=True,
+        control_variate=True,
+    ).price(asian)
     print("\nArithmetic Asian call")
     print(f"  Monte Carlo PV: ${value.price:,.2f}")
     print(f"  Standard error: ${value.standard_error:,.2f}")
+    print(f"  95% CI: ${value.confidence_interval_95[0]:,.2f} to ${value.confidence_interval_95[1]:,.2f}")
 
 
 def price_asr() -> None:
@@ -169,4 +192,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

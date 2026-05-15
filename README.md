@@ -1,31 +1,27 @@
 # Master Pricing Library
 
-This repository is a Python pricing library for common rates and equity derivatives. It integrates the existing interest-rate swap work into a reusable rates module, adds an ASR module inspired by the existing ASR implementation, and extends the library to European options, American options, equity forwards, and arithmetic Asian options.
-
-The code is intended for interview, learning, and model-prototyping use. It is not a production trading, risk, or valuation system.
+This repository is a Python pricing library for common rates and equity derivatives. It integrates the existing interest-rate swap work into a reusable rates module, adds an ASR module inspired by the existing ASR implementation, and extends the library to European options, American options, stochastic-volatility options, equity forwards, and arithmetic Asian options.
 
 ## Repository Layout
 
 ```text
 pricing_library/
   core/
-    curves.py        # Discount curves and flat curves
+    curves.py        # Discount curves, flat curves, interpolation, compounding
     daycount.py      # ACT/360, ACT/365F, 30/360
-    schedule.py      # Coupon schedules and business-day averaging dates
+    schedule.py      # Market calendars, coupon schedules, business-day dates
   rates/
-    swaps.py         # Plain-vanilla interest-rate swaps
+    swaps.py         # Single-curve and multi-curve interest-rate swaps
   equity/
-    options.py       # European Black-Scholes and binomial option pricing
+    options.py       # Black-Scholes, binomial, local-vol, Heston Monte Carlo
     forwards.py      # Equity forward pricing
-    asian.py         # Arithmetic Asian option Monte Carlo
+    asian.py         # Arithmetic Asian option Monte Carlo with variance reduction
     asr.py           # Accelerated share repurchase Monte Carlo
 examples/
   pricing_examples.py
 tests/
   test_pricing_library.py
 ```
-
-The original `irs_pricer/` package and `asr_pricer.py` script are left in place as reference implementations.
 
 ## Quick Start
 
@@ -42,6 +38,31 @@ For editable installation:
 python3 -m pip install -e .
 ```
 
+## Core Infrastructure
+
+### Calendars and Schedules
+
+The schedule module supports weekend-only calendars, static custom holidays, and named rule-based calendars:
+
+- `weekend`
+- `us_federal`
+- `target2`
+- `nyse`
+
+Supported business-day adjustments are `following`, `modified_following`, `preceding`, and `modified_preceding`. Schedule generation also supports end-of-month rolling.
+
+### Curves
+
+`DiscountCurve` supports:
+
+- Zero-rate or discount-factor input
+- Continuous, simple, annual, semiannual, quarterly, and monthly compounding
+- Linear zero-rate interpolation
+- Linear discount-factor interpolation
+- Log-linear discount-factor interpolation
+- Parallel zero-rate bumps
+- Simple money-market discount-factor bootstrapping
+
 ## Implemented Products
 
 ### Interest Rate Swap
@@ -56,26 +77,34 @@ Contractual features:
 - Fixed and floating payment frequencies
 - Fixed and floating day-count conventions
 - Floating spread
-- Coupon schedules with simple business-day adjustment
+- Coupon schedules with following, modified-following, preceding, and modified-preceding adjustment
+- Weekend, custom-holiday, US Federal, TARGET2, and NYSE calendars
+- End-of-month schedule generation
+
+Pricing features:
+
+- Single-curve pricing by default
+- Optional separate discounting and floating-rate forecast curves
+- Discount, forecast, and total DV01
 
 Pricing math:
 
-For payment dates \(T_i\), accrual fractions \(\alpha_i\), notional \(N\), fixed rate \(K\), and discount factor \(P(0,T_i)\):
+For payment dates \(T_i\), accrual fractions \(\alpha_i\), notional \(N\), fixed rate \(K\), discount factor \(P^d(0,T_i)\), and forecast discount factor \(P^f(0,T_i)\):
 
 \[
-PV_{\text{fixed}} = N K \sum_i \alpha_i P(0,T_i)
+PV_{\text{fixed}} = N K \sum_i \alpha_i P^d(0,T_i)
 \]
 
 The floating forward for period \([T_{i-1}, T_i]\) is:
 
 \[
-F_i = \frac{P(0,T_{i-1})/P(0,T_i)-1}{\alpha_i}
+F_i = \frac{P^f(0,T_{i-1})/P^f(0,T_i)-1}{\alpha_i}
 \]
 
 With spread \(s\):
 
 \[
-PV_{\text{float}} = N \sum_i (F_i+s)\alpha_i P(0,T_i)
+PV_{\text{float}} = N \sum_i (F_i+s)\alpha_i P^d(0,T_i)
 \]
 
 For a fixed-rate payer:
@@ -87,12 +116,12 @@ PV = PV_{\text{float}} - PV_{\text{fixed}}
 For a fixed-rate receiver, the sign is reversed. The par fixed rate is:
 
 \[
-K^* = \frac{PV_{\text{float}}}{N\sum_i \alpha_i P(0,T_i)}
+K^* = \frac{PV_{\text{float}}}{N\sum_i \alpha_i P^d(0,T_i)}
 \]
 
 ### European Equity Options
 
-A European option can be exercised only at maturity. The library implements Black-Scholes-Merton closed-form valuation and a Cox-Ross-Rubinstein binomial tree.
+A European option can be exercised only at maturity. The library implements Black-Scholes-Merton closed-form valuation, CRR/Jarrow-Rudd/Tian binomial trees, optional local-volatility trees, and Heston stochastic-volatility Monte Carlo.
 
 Contractual features:
 
@@ -127,9 +156,21 @@ P = K e^{-rT}N(-d_2)-S_0 e^{-qT}N(-d_1)
 
 The implementation also returns delta, gamma, vega, theta, and rho.
 
+Heston Monte Carlo uses full-truncation Euler variance steps:
+
+\[
+dS_t=(r-q)S_tdt+\sqrt{v_t}S_tdW^S_t
+\]
+
+\[
+dv_t=\kappa(\theta-v_t)dt+\xi\sqrt{v_t}dW^v_t,
+\qquad
+dW^SdW^v=\rho dt
+\]
+
 ### American Equity Options
 
-An American option can be exercised on any tree step up to maturity. There is no simple general closed form for American puts, so the library uses a Cox-Ross-Rubinstein tree.
+An American option can be exercised on any tree step up to maturity. There is no simple general closed form for American puts, so the library uses binomial trees. Supported tree models are `crr`, `jarrow_rudd`, and `tian`; a spot/time local-volatility callback is also available for smaller non-recombining trees.
 
 Tree math:
 
@@ -197,6 +238,14 @@ The simulated equity process is:
 S_{t+\Delta t}=S_t\exp\left((r-q-\sigma^2/2)\Delta t+\sigma\sqrt{\Delta t}Z\right)
 \]
 
+Variance-reduction options include:
+
+- Antithetic paths
+- Moment matching
+- Geometric-average Asian control variate
+
+The Monte Carlo result includes a standard error and 95% confidence interval.
+
 ### Accelerated Share Repurchase
 
 An accelerated share repurchase is a structured equity transaction where a company pays a cash notional upfront, receives an initial delivery of shares, and later settles based on the average stock price over an averaging period.
@@ -259,9 +308,15 @@ from pricing_library.core.curves import DiscountCurve
 from pricing_library.rates import InterestRateSwapPricer, build_vanilla_interest_rate_swap
 
 valuation_date = date(2026, 5, 15)
-curve = DiscountCurve(
+discount_curve = DiscountCurve(
     valuation_date,
     ((0.0, 0.049), (1.0, 0.046), (3.0, 0.042), (5.0, 0.0405)),
+    interpolation="log_linear_discount",
+)
+forecast_curve = DiscountCurve(
+    valuation_date,
+    ((0.0, 0.050), (1.0, 0.048), (3.0, 0.044), (5.0, 0.0420)),
+    interpolation="log_linear_discount",
 )
 
 swap = build_vanilla_interest_rate_swap(
@@ -271,10 +326,11 @@ swap = build_vanilla_interest_rate_swap(
     notional=50_000_000,
     fixed_rate=0.0415,
     direction="payer",
+    calendar="us_federal",
 )
 
-value = InterestRateSwapPricer().price(swap, curve)
-print(value.pv, value.par_rate, value.dv01)
+value = InterestRateSwapPricer().price(swap, discount_curve, forecast_curve)
+print(value.pv, value.par_rate, value.discount_dv01, value.forecast_dv01)
 ```
 
 Run all example products:
@@ -283,22 +339,6 @@ Run all example products:
 python3 -m examples.pricing_examples
 ```
 
-## Engineering Practices Used
+## Remaining Known Limitations
 
-- Typed dataclasses for product contracts and valuation outputs
-- Separate `core`, `rates`, and `equity` modules
-- No hidden global market state
-- Deterministic seeds for stochastic examples and tests
-- Unit tests for reference option values, parity, American exercise, swaps, forwards, and ASR sanity
-- Minimal runtime dependencies for easier GitHub reuse
-- `.gitignore` and package metadata for clean repository publishing
-
-## Known Limitations
-
-- Calendars use weekends and optional static holiday lists only.
-- Curves use continuously compounded zero rates with linear interpolation in maturity.
-- Swaps use a single curve for forwarding and discounting.
-- The binomial tree is a CRR tree, not a local-volatility or stochastic-volatility model.
-- Monte Carlo pricers are educational and do not include variance-reduction beyond antithetic paths.
 - The ASR pricer models scheduled final settlement. It does not optimize a counterparty early-termination right.
-

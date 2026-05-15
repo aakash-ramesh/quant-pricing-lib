@@ -6,7 +6,7 @@ from typing import Literal
 
 from pricing_library.core.curves import DiscountCurve
 from pricing_library.core.daycount import DayCount, year_fraction
-from pricing_library.core.schedule import BusinessDayAdjustment, generate_schedule
+from pricing_library.core.schedule import BusinessDayAdjustment, CalendarInput, generate_schedule
 
 SwapDirection = Literal["payer", "receiver"]
 
@@ -53,21 +53,43 @@ class SwapValuation:
     par_rate: float
     annuity: float
     dv01: float
+    discount_dv01: float = 0.0
+    forecast_dv01: float = 0.0
 
 
 class InterestRateSwapPricer:
-    """Discount-curve pricer for vanilla swaps."""
+    """Single-curve or multi-curve pricer for vanilla swaps."""
 
-    def price(self, swap: InterestRateSwap, discount_curve: DiscountCurve) -> SwapValuation:
+    def price(
+        self,
+        swap: InterestRateSwap,
+        discount_curve: DiscountCurve,
+        forecast_curve: DiscountCurve | None = None,
+    ) -> SwapValuation:
+        single_curve = forecast_curve is None
+        forecast_curve = forecast_curve or discount_curve
         fixed_leg_pv, annuity = self._fixed_leg_pv_and_annuity(swap, discount_curve)
-        floating_leg_pv = self._floating_leg_pv(swap, discount_curve)
+        floating_leg_pv = self._floating_leg_pv(swap, discount_curve, forecast_curve)
         pv = self._net_pv(swap.direction, fixed_leg_pv, floating_leg_pv)
         par_rate = floating_leg_pv / annuity if annuity else 0.0
 
-        bumped_curve = discount_curve.bump_parallel(1.0)
-        bumped_fixed_pv, _ = self._fixed_leg_pv_and_annuity(swap, bumped_curve)
-        bumped_float_pv = self._floating_leg_pv(swap, bumped_curve)
-        dv01 = self._net_pv(swap.direction, bumped_fixed_pv, bumped_float_pv) - pv
+        if single_curve:
+            bumped_curve = discount_curve.bump_parallel(1.0)
+            bumped_fixed_pv, _ = self._fixed_leg_pv_and_annuity(swap, bumped_curve)
+            bumped_float_pv = self._floating_leg_pv(swap, bumped_curve, bumped_curve)
+            dv01 = self._net_pv(swap.direction, bumped_fixed_pv, bumped_float_pv) - pv
+            discount_dv01 = dv01
+            forecast_dv01 = 0.0
+        else:
+            bumped_discount_curve = discount_curve.bump_parallel(1.0)
+            bumped_fixed_pv, _ = self._fixed_leg_pv_and_annuity(swap, bumped_discount_curve)
+            bumped_discount_float_pv = self._floating_leg_pv(swap, bumped_discount_curve, forecast_curve)
+            discount_dv01 = self._net_pv(swap.direction, bumped_fixed_pv, bumped_discount_float_pv) - pv
+
+            bumped_forecast_curve = forecast_curve.bump_parallel(1.0)
+            bumped_forecast_float_pv = self._floating_leg_pv(swap, discount_curve, bumped_forecast_curve)
+            forecast_dv01 = self._net_pv(swap.direction, fixed_leg_pv, bumped_forecast_float_pv) - pv
+            dv01 = discount_dv01 + forecast_dv01
 
         return SwapValuation(
             fixed_leg_pv=fixed_leg_pv,
@@ -76,6 +98,8 @@ class InterestRateSwapPricer:
             par_rate=par_rate,
             annuity=annuity,
             dv01=dv01,
+            discount_dv01=discount_dv01,
+            forecast_dv01=forecast_dv01,
         )
 
     @staticmethod
@@ -98,15 +122,20 @@ class InterestRateSwapPricer:
         return swap.fixed_leg.fixed_rate * annuity, annuity
 
     @staticmethod
-    def _floating_leg_pv(swap: InterestRateSwap, discount_curve: DiscountCurve) -> float:
+    def _floating_leg_pv(
+        swap: InterestRateSwap,
+        discount_curve: DiscountCurve,
+        forecast_curve: DiscountCurve,
+    ) -> float:
         dates = swap.floating_leg.reset_dates
         pv = 0.0
         for start, end in zip(dates, dates[1:]):
             accrual = year_fraction(start, end, swap.floating_leg.day_count)
-            t_start = discount_curve.time_from_reference(start)
-            t_end = discount_curve.time_from_reference(end)
-            forward = discount_curve.forward_rate(max(t_start, 0.0), max(t_end, 0.0), accrual)
-            discount = discount_curve.discount_factor(max(t_end, 0.0))
+            forecast_start = forecast_curve.time_from_reference(start)
+            forecast_end = forecast_curve.time_from_reference(end)
+            discount_end = discount_curve.time_from_reference(end)
+            forward = forecast_curve.forward_rate(max(forecast_start, 0.0), max(forecast_end, 0.0), accrual)
+            discount = discount_curve.discount_factor(max(discount_end, 0.0))
             pv += swap.floating_leg.notional * (forward + swap.floating_leg.spread) * accrual * discount
         return pv
 
@@ -125,6 +154,9 @@ def build_vanilla_interest_rate_swap(
     floating_day_count: str | DayCount = DayCount.ACT_360,
     floating_spread: float = 0.0,
     business_day_adjustment: BusinessDayAdjustment = "modified_following",
+    calendar: CalendarInput = None,
+    holidays: tuple[date, ...] = (),
+    end_of_month_rule: bool = False,
 ) -> InterestRateSwap:
     fixed_dates = tuple(
         generate_schedule(
@@ -132,6 +164,9 @@ def build_vanilla_interest_rate_swap(
             maturity_date,
             fixed_frequency_months,
             adjustment=business_day_adjustment,
+            calendar=calendar,
+            holidays=holidays,
+            end_of_month_rule=end_of_month_rule,
         )
     )
     floating_dates = tuple(
@@ -140,6 +175,9 @@ def build_vanilla_interest_rate_swap(
             maturity_date,
             floating_frequency_months,
             adjustment=business_day_adjustment,
+            calendar=calendar,
+            holidays=holidays,
+            end_of_month_rule=end_of_month_rule,
         )
     )
     return InterestRateSwap(
@@ -150,4 +188,3 @@ def build_vanilla_interest_rate_swap(
         fixed_leg=FixedLeg(notional, fixed_rate, fixed_day_count, fixed_dates),
         floating_leg=FloatingLeg(notional, floating_spread, floating_day_count, floating_dates),
     )
-
