@@ -5,10 +5,10 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "pricing-library"
 version = "0.1.0"
-description = "Educational master pricing library for rates and equity derivatives."
+description = "Pricng library for rates and equity derivatives."
 readme = "README.md"
 requires-python = ">=3.10"
-authors = [{ name = "Neeraj" }]
+authors = [{ name = "Aakash" }]
 license = { text = "MIT" }
 classifiers = [
     "Programming Language :: Python :: 3",
